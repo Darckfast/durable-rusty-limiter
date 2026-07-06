@@ -1,0 +1,14 @@
+[package]
+name = "durable-rusty-limiter"
+version = "0.1.0"
+edition = "2021"
+authors = ["darckfast <21337578+Darckfast@users.noreply.github.com>"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2.126"
+worker = { version = "0.8" }
+worker-macros = { version = "0.8" }
+serde = { version = "1.0.228", features = ["derive"] }
