@@ -1,10 +1,9 @@
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::prelude::wasm_bindgen;
 use worker::{
-    console_error, console_log, durable_object, event, Context, Date, DurableObject, Env, Error,
-    Headers, Request, Response, State,
+    console_error, durable_object, event, Context, Date, DurableObject, Env, Error, Headers,
+    Request, Response, State,
 };
 
 #[event(fetch)]
@@ -26,66 +25,62 @@ async fn fetch(_req: Request, _env: Env, _ctx: Context) -> Result<Response, Erro
 
 #[durable_object]
 pub struct RustyLimiter {
-    // next_allowed_time: i64,
-    // in_cooldown: bool,
-    // sql: SqlStorage,
     kv_key: &'static str,
     state: State,
-    env: Env,
-}
-
-#[wasm_bindgen]
-impl RustyLimiter {
-    pub fn test(&mut self) {
-        // if self.in_cooldown {
-        //     console_log!("in cooldown");
-        // } else {
-        //     console_log!("not in cooldown");
-        // }
-        //
-        // self.in_cooldown = !self.in_cooldown;
-    }
+    cooldown_in_ms: u64,
+    max_req_per_sec: u64,
 }
 
 #[derive(Deserialize, Serialize)]
 struct RateLimitRows {
-    in_cooldown: bool,
     next_allowed_time: u64,
-    counter: u32,
+    counter: u64,
 }
-
-const MAX_REQ_SEC: u32 = 100;
 
 impl DurableObject for RustyLimiter {
     fn new(state: State, env: Env) -> Self {
+        let cooldown_in_ms: u64 = match env.var("COOLDOWN_IN_MS") {
+            Ok(a) => a.to_string().parse().unwrap_or(60),
+            Err(_) => 60u64,
+        };
+        let max_req_per_sec: u64 = match env.var("MAX_REQ_PER_SEC") {
+            Ok(a) => a.to_string().parse().unwrap_or(10),
+            Err(_) => 10u64,
+        };
+
         Self {
             kv_key: "rate-limit",
             state: state,
-            env: env,
+            cooldown_in_ms: cooldown_in_ms,
+            max_req_per_sec: max_req_per_sec,
         }
     }
 
     async fn alarm(&self) -> Result<Response, Error> {
-        let _ = self.state.storage().delete(self.kv_key).await;
-        console_log!("reseting rate-limit");
+        match self.state.storage().delete(self.kv_key).await {
+            Ok(_) => {}
+            Err(e) => console_error!(
+                "error reseting rate-limit {} for {}",
+                e,
+                self.state.id().to_string()
+            ),
+        };
         Response::empty()
     }
 
-    // alarm will reset the counter
     async fn fetch(&self, _req: Request) -> Result<Response, Error> {
-        let _ = self.state.storage().delete_alarm().await;
         match self.state.storage().get_alarm().await {
             Ok(alarm) => match alarm {
-                Some(_) => {
-                    console_log!("alarm already set");
-                }
+                Some(_) => {}
                 None => {
                     let storage = self.state.storage();
+                    let cooldown = self.cooldown_in_ms;
                     self.state.wait_until(async move {
-                        let sch = Duration::from_millis(Date::now().as_millis() + 60 * 1000);
-                        let _ = storage.set_alarm(sch).await;
-
-                        console_log!("created alarm {}", sch.as_millis());
+                        let sch = Duration::from_millis(cooldown);
+                        match storage.set_alarm(sch).await {
+                            Ok(_) => {}
+                            Err(e) => console_error!("error creating alarm {}", e),
+                        };
                     });
                 }
             },
@@ -97,37 +92,47 @@ impl DurableObject for RustyLimiter {
                 Some(mut val) => {
                     val.counter += 1;
 
-                    console_log!("counter {}", val.counter);
-                    let now = Date::now();
-                    let now_millis = now.as_millis();
-                    if val.counter >= MAX_REQ_SEC
-                        && val.next_allowed_time != 0
-                        && val.next_allowed_time < now_millis
-                    {
-                        val.next_allowed_time =
-                            Duration::from_secs(60).as_secs() * 1000 + now_millis;
-                        let storage = self.state.storage();
-                        let kv_key = self.kv_key;
+                    let now = Date::now().as_millis();
+                    let storage = self.state.storage();
+                    let kv_key = self.kv_key;
+                    let cooldown = self.cooldown_in_ms;
+
+                    if val.counter >= self.max_req_per_sec && val.next_allowed_time < now {
+                        if val.next_allowed_time == 0 {
+                            val.next_allowed_time = (Duration::from_millis(now)
+                                + Duration::from_millis(cooldown))
+                            .as_secs();
+                        }
+
+                        let retry_after = Duration::from_millis(now)
+                            .abs_diff(Duration::from_secs(val.next_allowed_time))
+                            .as_secs()
+                            % 60;
+
                         self.state.wait_until(async move {
-                            let _ = storage.put(kv_key, &val).await;
+                            match storage.put(kv_key, &val).await {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    console_error!("error when calling put on storage: {}", e)
+                                }
+                            };
                         });
-                    } else if val.next_allowed_time >= now_millis {
-                        console_log!("rate limited: {}", self.state.id().to_string());
+
                         let headers = Headers::new();
-                        headers.set(
-                            "Retry-After",
-                            &(val.next_allowed_time - now_millis).to_string(),
-                        )?;
+                        headers.set("Retry-After", &(retry_after).to_string())?;
 
                         let mut response = Response::error("Rate limited", 429)?;
                         response = response.with_headers(headers);
 
-                        let _ = Result::<&Response, ()>::Ok(&response);
+                        return Ok(response);
                     } else {
-                        let storage = self.state.storage();
-                        let kv_key = self.kv_key;
                         self.state.wait_until(async move {
-                            let _ = storage.put(kv_key, &val).await;
+                            match storage.put(kv_key, &val).await {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    console_error!("error when calling put on storage: {}", e)
+                                }
+                            };
                         });
                     }
                 }
@@ -135,18 +140,26 @@ impl DurableObject for RustyLimiter {
                     let val = RateLimitRows {
                         next_allowed_time: 0,
                         counter: 1,
-                        in_cooldown: false,
                     };
 
                     let storage = self.state.storage();
                     let kv_key = self.kv_key;
                     self.state.wait_until(async move {
-                        let _ = storage.put(kv_key, &val).await;
+                        match storage.put(kv_key, &val).await {
+                            Ok(_) => {}
+                            Err(e) => {
+                                console_error!("error when calling put on storage: {}", e)
+                            }
+                        };
                     });
                 }
             },
-            Err(_) => {}
+            Err(e) => {
+                console_error!("error retrieving KV entry {}", e);
+                return Err(e);
+            }
         }
+
         Response::empty()
     }
 }

@@ -8,7 +8,7 @@ authors = ["darckfast <21337578+Darckfast@users.noreply.github.com>"]
 crate-type = ["cdylib"]
 
 [dependencies]
-wasm-bindgen = "0.2.126"
 worker = { version = "0.8" }
 worker-macros = { version = "0.8" }
 serde = { version = "1.0.228", features = ["derive"] }
+wasm-bindgen = "0.2.126"

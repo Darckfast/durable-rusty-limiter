@@ -1,0 +1,24 @@
+{
+    "name": "durable-rusty-limiter",
+    "version": "1.0.0",
+    "description": "",
+    "main": "index.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "devEngines": {
+        "packageManager": {
+            "name": "pnpm",
+            "version": "^11.9.0",
+            "onFail": "download"
+        }
+    },
+    "type": "module",
+    "devDependencies": {
+        "miniflare": "^4.20260701.0",
+        "wrangler": "^4.107.0"
+    }
+}
