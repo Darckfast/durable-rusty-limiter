@@ -2,26 +2,9 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use worker::{
-    console_error, durable_object, event, Context, Date, DurableObject, Env, Error, Headers,
-    Request, Response, State,
+    console_error, durable_object, Date, DurableObject, Env, Error, Headers, Request, Response,
+    State,
 };
-
-#[event(fetch)]
-async fn fetch(_req: Request, _env: Env, _ctx: Context) -> Result<Response, Error> {
-    match _env.durable_object("RUSTY_LIMITER") {
-        Ok(namespace) => {
-            let stub = namespace
-                .id_from_name("test-id")
-                .unwrap()
-                .get_stub()
-                .unwrap();
-
-            return stub.fetch_with_request(_req).await;
-        }
-        Err(err) => console_error!("Error getting binding for DO {}", err),
-    }
-    Response::ok("Hello World!")
-}
 
 #[durable_object]
 pub struct RustyLimiter {
