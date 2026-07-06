@@ -7,7 +7,7 @@ command = "cargo install -q \"worker-build@^0.8\" && worker-build --release"
 
 [vars]
 COOLDOWN_IN_MS = "60000"
-MAX_REQ_PER_SEC = "100"
+MAX_REQ_PER_SEC = "10"
 
 [durable_objects]
 bindings = [
