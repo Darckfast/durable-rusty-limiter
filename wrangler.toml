@@ -7,6 +7,9 @@ preview_urls = false
 [build]
 command = "cargo install -q \"worker-build@^0.8\" && worker-build --release"
 
+[observability.logs]
+enabled = true
+
 [vars]
 COOLDOWN_IN_MS = "60000"
 MAX_REQ_PER_SEC = "10"
