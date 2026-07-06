@@ -16,4 +16,4 @@ bindings = [
 
 [[migrations]]
 tag = "v1" 
-new_classes = ["RustyLimiter"] 
+new_sqlite_classes = ["RustyLimiter"] 
