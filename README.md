@@ -1,6 +1,6 @@
 # durable-rusty-limiter
 
-A simple Rust rate-limiter made for Cloudflare Durable Objects
+A simple Rust rate-limiter made for Cloudflare Workers using Durable Objects
 
 ## Getting Started
 
