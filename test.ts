@@ -11,7 +11,7 @@ describe('rate-limit', () => {
             scriptPath: "./build/index.js",
             modules: true,
             bindings: {
-                MAX_REQ_PER_SEC: "100",
+                MAX_REQS: "100",
                 COOLDOWN_IN_MS: "300",
             },
             durableObjects: {

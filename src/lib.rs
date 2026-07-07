@@ -11,7 +11,7 @@ pub struct RustyLimiter {
     kv_key: &'static str,
     state: State,
     cooldown_in_ms: u64,
-    max_req_per_sec: u64,
+    max_reqs: u64,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -26,7 +26,7 @@ impl DurableObject for RustyLimiter {
             Ok(a) => a.to_string().parse().unwrap_or(60),
             Err(_) => 60u64,
         };
-        let max_req_per_sec: u64 = match env.var("MAX_REQ_PER_SEC") {
+        let max_reqs: u64 = match env.var("MAX_REQS") {
             Ok(a) => a.to_string().parse().unwrap_or(10),
             Err(_) => 10u64,
         };
@@ -35,7 +35,7 @@ impl DurableObject for RustyLimiter {
             kv_key: "rate-limit",
             state: state,
             cooldown_in_ms: cooldown_in_ms,
-            max_req_per_sec: max_req_per_sec,
+            max_reqs: max_reqs,
         }
     }
 
@@ -70,24 +70,24 @@ impl DurableObject for RustyLimiter {
             Err(e) => console_error!("error retrieving alarm {}", e),
         }
 
+        let storage = self.state.storage();
+        let kv_key = self.kv_key;
         match self.state.storage().get::<RateLimitRows>(self.kv_key).await {
             Ok(entry) => match entry {
                 Some(mut val) => {
                     val.counter += 1;
 
                     let now = Date::now().as_millis();
-                    let storage = self.state.storage();
-                    let kv_key = self.kv_key;
                     let cooldown = self.cooldown_in_ms;
 
-                    if val.counter >= self.max_req_per_sec && val.next_allowed_time < now {
+                    if val.counter >= self.max_reqs && val.next_allowed_time < now {
+                        let now_duration = Duration::from_millis(now);
                         if val.next_allowed_time == 0 {
-                            val.next_allowed_time = (Duration::from_millis(now)
-                                + Duration::from_millis(cooldown))
-                            .as_secs();
+                            val.next_allowed_time =
+                                (now_duration + Duration::from_millis(cooldown)).as_secs();
                         }
 
-                        let retry_after = Duration::from_millis(now)
+                        let retry_after = now_duration
                             .abs_diff(Duration::from_secs(val.next_allowed_time))
                             .as_secs()
                             % 60;
@@ -125,8 +125,6 @@ impl DurableObject for RustyLimiter {
                         counter: 1,
                     };
 
-                    let storage = self.state.storage();
-                    let kv_key = self.kv_key;
                     self.state.wait_until(async move {
                         match storage.put(kv_key, &val).await {
                             Ok(_) => {}

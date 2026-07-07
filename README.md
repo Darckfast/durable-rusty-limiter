@@ -14,8 +14,7 @@ Change the necessary configuration on `wrangler.toml`
 ```
 [vars]
 COOLDOWN_IN_MS = "60000" // cooldown from when the limited is reached, until it gets allowed again
-MAX_REQ_PER_SEC = "10" // maxium of request per second before being limited
-
+MAX_REQS = "10" // maxium of request allowed within the COOLDOWN_IN_MS
 ```
 
 Add the bindings to your worker `wrangler.jsonc`
