@@ -16,7 +16,7 @@ MAX_REQ_PER_SEC = "10"
 
 [durable_objects]
 bindings = [
-  { name = "RUSTY_LIMITER", class_name = "RustyLimiter" } # the `class_name` uses the Rust struct identifier name
+  { name = "RUSTY_LIMITER", class_name = "RustyLimiter" }
 ]
 
 [[migrations]]
