@@ -28,6 +28,9 @@ MAX_REQS = "10" // maxium of request allowed within the COOLDOWN_IN_MS
 
 Add the bindings to your worker `wrangler.jsonc`
 
+> [!WARNING]
+> This durable object needs to be called before your worker processes a request or event. The goal is to avoid unnecessary request processing at the cost of invoking this durable object on every request/event.
+
 ```json
 "durable_objects": {
     "bindings": [
@@ -58,10 +61,6 @@ if (rs.ok) {
 }
 
 ```
+> [!TIP]
+> In the example above, we use the client's real IP as the unique identifier for our durable object, this is important because each durable object is a contained limiter, meaning if a fixed name or ID is used, all calls will share the same limit parameter. But it does not necessarily have to be limited by IP, any identifier that makes sense to your use is well fitted.
 
-## Notes
-### Same source
-In the example above, we use the client's IP as the unique identifier for our durable object, this is important because each durable object is a contained limiter, meaning if a fixed name or ID is used, all calls will share the same limit parameter. But it does not necessarily have to be limited to IP, any identifier that makes sense to your use is well fitted.
-
-### Workers invocations
-This durable object needs to be called before your worker processes a request or event. The main goal is to avoid unnecessary request processing at the cost of invoking this durable object on every request.
