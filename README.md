@@ -1,4 +1,9 @@
-# durable-rusty-limiter
+<p align="center">
+  <a href="https://darckfast.com/docs/durable-rusty-limter">
+    <img alt="durable-rusty-limiter" src=".github/images/durable-rusty-limiter.png">
+    <h1 align="center">durable-rusty-limiter</h1>
+  </a>
+</p>
 
 A simple Rust rate-limiter made for Cloudflare Workers using Durable Objects
 
@@ -11,7 +16,7 @@ pnpx wrangler deploy
 ```
 
 Change the necessary configuration on `wrangler.toml`
-```
+```toml
 [vars]
 COOLDOWN_IN_MS = "60000" // cooldown from when the limited is reached, until it gets allowed again
 MAX_REQS = "10" // maxium of request allowed within the COOLDOWN_IN_MS
