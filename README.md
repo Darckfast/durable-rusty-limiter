@@ -9,10 +9,14 @@ A simple Rust rate-limiter made for Cloudflare Workers using Durable Objects
 
 ## Getting Started
 
+> [!IMPORTANT]
+> At the moment [Cloudlfare build image](https://developers.cloudflare.com/pages/configuration/build-image/) does not support Rust build using their git solution, you need to fork and deploy it manually.
+
 Fork it and deploy it to Cloudflare
 
 ```bash
-pnpx wrangler deploy
+pnpm i
+pnpm wrangler deploy
 ```
 
 Change the necessary configuration on `wrangler.toml`
@@ -57,7 +61,7 @@ if (rs.ok) {
 
 ## Notes
 ### Same source
-In the example above, we use the client's IP as the unique identifier for our durable object, this is important because each durable object is a contained limiter, meaning if a fixed name or ID is used, all calls will share the same limit parameter. But it does not necessarily have to be limited by IP, any identifier that makes sense to your use is well fitted.
+In the example above, we use the client's IP as the unique identifier for our durable object, this is important because each durable object is a contained limiter, meaning if a fixed name or ID is used, all calls will share the same limit parameter. But it does not necessarily have to be limited to IP, any identifier that makes sense to your use is well fitted.
 
 ### Workers invocations
 This durable object needs to be called before your worker processes a request or event. The main goal is to avoid unnecessary request processing at the cost of invoking this durable object on every request.
