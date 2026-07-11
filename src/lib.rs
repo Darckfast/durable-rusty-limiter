@@ -58,23 +58,24 @@ impl DurableObject for RustyLimiter {
     }
 
     async fn fetch(&self, _req: Request) -> Result<Response, Error> {
-        match self.state.storage().get_alarm().await {
-            Ok(alarm) => match alarm {
-                Some(_) => {}
-                None => {
-                    let storage = self.state.storage();
-                    let cooldown = self.cooldown_in_ms;
-                    self.state.wait_until(async move {
+        let storage = self.state.storage();
+        let cooldown = self.cooldown_in_ms;
+
+        self.state.wait_until(async move {
+            match storage.get_alarm().await {
+                Ok(alarm) => match alarm {
+                    Some(_) => {}
+                    None => {
                         let sch = Duration::from_millis(cooldown);
                         match storage.set_alarm(sch).await {
                             Ok(_) => {}
-                            Err(e) => console_error!("error creating alarm {}", e),
+                            Err(e) => console_error!("error creating alarm {e:?}"),
                         };
-                    });
-                }
-            },
-            Err(e) => console_error!("error retrieving alarm {}", e),
-        }
+                    }
+                },
+                Err(e) => console_error!("error retrieving alarm {e:?}"),
+            }
+        });
 
         let storage = self.state.storage();
         let kv_key = self.kv_key;
