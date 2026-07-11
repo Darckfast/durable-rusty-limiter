@@ -79,58 +79,31 @@ impl DurableObject for RustyLimiter {
 
         let storage = self.state.storage();
         let kv_key = self.kv_key;
-        match self.state.storage().get::<RateLimitRows>(self.kv_key).await {
-            Ok(entry) => match entry {
-                Some(mut val) => {
-                    val.counter += 1;
+        let entry = self
+            .state
+            .storage()
+            .get::<RateLimitRows>(self.kv_key)
+            .await
+            .inspect_err(|e| console_error!("error retrieving KV entry {e:?}"))?;
 
-                    let now = Date::now().as_millis();
-                    let cooldown = self.cooldown_in_ms;
+        match entry {
+            Some(mut val) => {
+                val.counter += 1;
 
-                    if val.counter >= self.max_reqs && val.next_allowed_time < now {
-                        let now_duration = Duration::from_millis(now);
-                        if val.next_allowed_time == 0 {
-                            val.next_allowed_time =
-                                (now_duration + Duration::from_millis(cooldown)).as_secs();
-                        }
+                let now = Date::now().as_millis();
+                let cooldown = self.cooldown_in_ms;
 
-                        let retry_after = now_duration
-                            .abs_diff(Duration::from_secs(val.next_allowed_time))
-                            .as_secs()
-                            % 60;
-
-                        self.state.wait_until(async move {
-                            match storage.put(kv_key, &val).await {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    console_error!("error when calling put on storage: {}", e)
-                                }
-                            };
-                        });
-
-                        let headers = Headers::new();
-                        headers.set("Retry-After", &(retry_after).to_string())?;
-
-                        let mut response = Response::error("Rate limited", 429)?;
-                        response = response.with_headers(headers);
-
-                        return Ok(response);
-                    } else {
-                        self.state.wait_until(async move {
-                            match storage.put(kv_key, &val).await {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    console_error!("error when calling put on storage: {}", e)
-                                }
-                            };
-                        });
+                if val.counter >= self.max_reqs && val.next_allowed_time < now {
+                    let now_duration = Duration::from_millis(now);
+                    if val.next_allowed_time == 0 {
+                        val.next_allowed_time =
+                            (now_duration + Duration::from_millis(cooldown)).as_secs();
                     }
-                }
-                None => {
-                    let val = RateLimitRows {
-                        next_allowed_time: 0,
-                        counter: 1,
-                    };
+
+                    let retry_after = now_duration
+                        .abs_diff(Duration::from_secs(val.next_allowed_time))
+                        .as_secs()
+                        % 60;
 
                     self.state.wait_until(async move {
                         match storage.put(kv_key, &val).await {
@@ -140,11 +113,43 @@ impl DurableObject for RustyLimiter {
                             }
                         };
                     });
+
+                    let headers = Headers::new();
+                    headers.set("Retry-After", &(retry_after).to_string())?;
+
+                    let mut response = Response::error("Rate limited", 429)?;
+                    response = response.with_headers(headers);
+
+                    return Ok(response);
+                } else {
+                    self.state.wait_until(async move {
+                        match storage.put(kv_key, &val).await {
+                            Ok(_) => {}
+                            Err(e) => {
+                                console_error!("error when calling put on storage: {}", e)
+                            }
+                        };
+                    });
                 }
-            },
-            Err(e) => {
-                console_error!("error retrieving KV entry {}", e);
-                return Err(e);
+            }
+            None => {
+                self.state.wait_until(async move {
+                    match storage
+                        .put(
+                            kv_key,
+                            &RateLimitRows {
+                                next_allowed_time: 0,
+                                counter: 1,
+                            },
+                        )
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(e) => {
+                            console_error!("error when calling put on storage: {}", e)
+                        }
+                    };
+                });
             }
         }
 
