@@ -40,14 +40,20 @@ impl DurableObject for RustyLimiter {
     }
 
     async fn alarm(&self) -> Result<Response, Error> {
-        match self.state.storage().delete(self.kv_key).await {
-            Ok(_) => {}
-            Err(e) => console_error!(
-                "error reseting rate-limit {} for {}",
-                e,
-                self.state.id().to_string()
-            ),
-        };
+        // Durable Object only ceases to exists if, when it shuts down and its storage is empty
+        // including alarms.
+        // https://developers.cloudflare.com/durable-objects/best-practices/access-durable-objects-storage/#remove-a-durable-objects-storage
+        self.state
+            .storage()
+            .delete_all()
+            .await
+            .inspect_err(|e| console_error!("error deleting storage from limiter: {e:?}"))?;
+        self.state
+            .storage()
+            .delete_alarm()
+            .await
+            .inspect_err(|e| console_error!("error deleting alarm from limiter: {e:?}"))?;
+
         Response::empty()
     }
 
