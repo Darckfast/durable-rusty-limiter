@@ -15,13 +15,12 @@ describe('rate-limit', () => {
                 COOLDOWN_IN_MS: "300",
             },
             durableObjects: {
-                RUSTY_LIMITER: "RustyLimiter" // className
+                RUSTY_LIMITER: { className: "RustyLimiter", useSQLite: true }
             },
             modulesRules: [
                 { type: "CompiledWasm", include: ["**/*.wasm"], fallthrough: true }
             ]
         });
-
         await worker.ready
         RUSTY_LIMITER = await worker.getDurableObjectNamespace("RUSTY_LIMITER");
     })
