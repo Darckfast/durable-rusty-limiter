@@ -4,7 +4,8 @@
     "description": "",
     "main": "index.js",
     "scripts": {
-        "test": "wrangler deploy --dry-run && node --test test.ts"
+        "test": "wrangler deploy --dry-run && node --test test.ts",
+        "bench": "wrangler deploy --dry-run && node bench.ts"
     },
     "keywords": [],
     "author": "",
