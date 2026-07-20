@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use wasm_bindgen::JsValue;
 use worker::{
     console_error, durable_object, Date, DurableObject, Env, Error, Headers, Request, Response,
     State,
@@ -8,13 +9,12 @@ use worker::{
 
 #[durable_object]
 pub struct RustyLimiter {
-    kv_key: &'static str,
     state: State,
     cooldown_in_ms: u64,
     max_reqs: u64,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize)]
 struct RateLimitRows {
     next_allowed_time: u64,
     counter: u64,
@@ -32,7 +32,6 @@ impl DurableObject for RustyLimiter {
         };
 
         Self {
-            kv_key: "rate-limit",
             state: state,
             cooldown_in_ms: cooldown_in_ms,
             max_reqs: max_reqs,
@@ -61,13 +60,39 @@ impl DurableObject for RustyLimiter {
         let storage = self.state.storage();
         let cooldown = self.cooldown_in_ms;
 
+        let _ = storage.sql().exec(
+            r#"CREATE TABLE IF NOT EXISTS ratelimit (
+        "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+        "next_allowed_time" INTEGER NOT NULL DEFAULT 0,
+        "counter" INTEGER NOT NULL DEFAULT 0
+        )"#,
+            None,
+        )?;
+
+        let ratelimit = storage
+            .sql()
+            .exec_raw(
+                "INSERT INTO ratelimit (id, next_allowed_time, counter) VALUES (1,0,1) 
+            ON CONFLICT (id) DO UPDATE SET counter = (counter + 1), next_allowed_time = CASE 
+                WHEN counter >= ? THEN (unixepoch('subsec') * 1000) + ?
+                ELSE 0
+            END RETURNING id, next_allowed_time, counter",
+                vec![
+                    JsValue::from(self.max_reqs as usize),
+                    JsValue::from(self.cooldown_in_ms as usize),
+                ],
+            )
+            .inspect_err(|e| console_error!("error retrieving 'ratelimit' entry: {e:?}"))?
+            .one::<RateLimitRows>()
+            .inspect_err(|e| console_error!("error parsing 'ratelimit' result: {e:?}"))?;
+
         self.state.wait_until(async move {
             match storage.get_alarm().await {
                 Ok(alarm) => match alarm {
                     Some(_) => {}
                     None => {
-                        let sch = Duration::from_millis(cooldown);
-                        match storage.set_alarm(sch).await {
+                        let cooldown = Duration::from_millis(cooldown);
+                        match storage.set_alarm(cooldown).await {
                             Ok(_) => {}
                             Err(e) => console_error!("error creating alarm {e:?}"),
                         };
@@ -77,82 +102,23 @@ impl DurableObject for RustyLimiter {
             }
         });
 
-        let storage = self.state.storage();
-        let kv_key = self.kv_key;
-        let entry = self
-            .state
-            .storage()
-            .get::<RateLimitRows>(self.kv_key)
-            .await
-            .inspect_err(|e| console_error!("error retrieving KV entry {e:?}"))?;
+        if ratelimit.counter >= self.max_reqs {
+            let now = Duration::from_millis(Date::now().as_millis());
 
-        match entry {
-            Some(mut val) => {
-                val.counter += 1;
+            let retry_after = now
+                .abs_diff(Duration::from_millis(ratelimit.next_allowed_time))
+                .as_secs()
+                % 60;
 
-                let now = Date::now().as_millis();
-                let cooldown = self.cooldown_in_ms;
+            let headers = Headers::new();
+            headers.set("Retry-After", &(retry_after).to_string())?;
 
-                if val.counter >= self.max_reqs && val.next_allowed_time < now {
-                    let now_duration = Duration::from_millis(now);
-                    if val.next_allowed_time == 0 {
-                        val.next_allowed_time =
-                            (now_duration + Duration::from_millis(cooldown)).as_secs();
-                    }
+            let mut response = Response::error("Rate limited", 429)?;
+            response = response.with_headers(headers);
 
-                    let retry_after = now_duration
-                        .abs_diff(Duration::from_secs(val.next_allowed_time))
-                        .as_secs()
-                        % 60;
-
-                    self.state.wait_until(async move {
-                        match storage.put(kv_key, &val).await {
-                            Ok(_) => {}
-                            Err(e) => {
-                                console_error!("error when calling put on storage: {}", e)
-                            }
-                        };
-                    });
-
-                    let headers = Headers::new();
-                    headers.set("Retry-After", &(retry_after).to_string())?;
-
-                    let mut response = Response::error("Rate limited", 429)?;
-                    response = response.with_headers(headers);
-
-                    return Ok(response);
-                } else {
-                    self.state.wait_until(async move {
-                        match storage.put(kv_key, &val).await {
-                            Ok(_) => {}
-                            Err(e) => {
-                                console_error!("error when calling put on storage: {}", e)
-                            }
-                        };
-                    });
-                }
-            }
-            None => {
-                self.state.wait_until(async move {
-                    match storage
-                        .put(
-                            kv_key,
-                            &RateLimitRows {
-                                next_allowed_time: 0,
-                                counter: 1,
-                            },
-                        )
-                        .await
-                    {
-                        Ok(_) => {}
-                        Err(e) => {
-                            console_error!("error when calling put on storage: {}", e)
-                        }
-                    };
-                });
-            }
+            Ok(response)
+        } else {
+            Response::empty()
         }
-
-        Response::empty()
     }
 }
